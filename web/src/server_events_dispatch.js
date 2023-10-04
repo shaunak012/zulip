@@ -9,6 +9,7 @@ import * as bot_data from "./bot_data";
 import * as browser_history from "./browser_history";
 import {buddy_list} from "./buddy_list";
 import * as compose from "./compose";
+import * as compose_call from "./compose_call";
 import * as compose_pm_pill from "./compose_pm_pill";
 import * as compose_recipient from "./compose_recipient";
 import * as composebox_typeahead from "./composebox_typeahead";
@@ -41,6 +42,7 @@ import {realm_user_settings_defaults} from "./realm_user_settings_defaults";
 import * as reload from "./reload";
 import * as scheduled_messages from "./scheduled_messages";
 import * as scheduled_messages_overlay_ui from "./scheduled_messages_overlay_ui";
+import * as scheduled_messages_ui from "./scheduled_messages_ui";
 import * as scroll_bar from "./scroll_bar";
 import * as settings_account from "./settings_account";
 import * as settings_bots from "./settings_bots";
@@ -132,10 +134,10 @@ export function dispatch_normal_event(event) {
         case "has_zoom_token":
             page_params.has_zoom_token = event.value;
             if (event.value) {
-                for (const callback of compose.zoom_token_callbacks.values()) {
+                for (const callback of compose_call.zoom_token_callbacks.values()) {
                     callback();
                 }
-                compose.zoom_token_callbacks.clear();
+                compose_call.zoom_token_callbacks.clear();
             }
             break;
 
@@ -496,6 +498,9 @@ export function dispatch_normal_event(event) {
                 }
                 case "remove": {
                     scheduled_messages.remove_scheduled_message(event.scheduled_message_id);
+                    scheduled_messages_ui.hide_scheduled_message_success_compose_banner(
+                        event.scheduled_message_id,
+                    );
                     scheduled_messages_overlay_ui.remove_scheduled_message_id(
                         event.scheduled_message_id,
                     );

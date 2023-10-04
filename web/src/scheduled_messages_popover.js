@@ -2,6 +2,7 @@ import $ from "jquery";
 import {delegate} from "tippy.js";
 
 import render_send_later_modal from "../templates/send_later_modal.hbs";
+import render_send_later_modal_options from "../templates/send_later_modal_options.hbs";
 import render_send_later_popover from "../templates/send_later_popover.hbs";
 
 import * as compose from "./compose";
@@ -10,38 +11,9 @@ import * as flatpickr from "./flatpickr";
 import * as overlays from "./overlays";
 import * as popover_menus from "./popover_menus";
 import * as scheduled_messages from "./scheduled_messages";
-import * as timerender from "./timerender";
 import {parse_html} from "./ui_util";
 
-let selected_send_later_timestamp;
-
-export function get_selected_send_later_timestamp() {
-    if (!selected_send_later_timestamp) {
-        return undefined;
-    }
-    return selected_send_later_timestamp;
-}
-
-export function get_formatted_selected_send_later_time() {
-    const current_time = Date.now() / 1000; // seconds, like selected_send_later_timestamp
-    if (
-        scheduled_messages.is_send_later_timestamp_missing_or_expired(
-            selected_send_later_timestamp,
-            current_time,
-        )
-    ) {
-        return undefined;
-    }
-    return timerender.get_full_datetime(new Date(selected_send_later_timestamp * 1000), "time");
-}
-
-export function set_selected_schedule_timestamp(timestamp) {
-    selected_send_later_timestamp = timestamp;
-}
-
-export function reset_selected_schedule_timestamp() {
-    selected_send_later_timestamp = undefined;
-}
+export const SCHEDULING_MODAL_UPDATE_INTERVAL_IN_MILLISECONDS = 60 * 1000;
 
 function set_compose_box_schedule(element) {
     const selected_send_at_time = element.dataset.sendStamp / 1000;
@@ -63,8 +35,8 @@ export function open_send_later_menu() {
         autoremove: true,
         on_show() {
             interval = setInterval(
-                scheduled_messages.update_send_later_options,
-                scheduled_messages.SCHEDULING_MODAL_UPDATE_INTERVAL_IN_MILLISECONDS,
+                update_send_later_options,
+                SCHEDULING_MODAL_UPDATE_INTERVAL_IN_MILLISECONDS,
             );
 
             const $send_later_modal = $("#send_later_modal");
@@ -134,7 +106,7 @@ export function do_schedule_message(send_at_time) {
         // Convert to timestamp if this is not a timestamp.
         send_at_time = Math.floor(Date.parse(send_at_time) / 1000);
     }
-    selected_send_later_timestamp = send_at_time;
+    scheduled_messages.set_selected_schedule_timestamp(send_at_time);
     compose.finish(true);
 }
 
@@ -147,7 +119,8 @@ export function initialize() {
             $("#compose-textarea").trigger("focus");
         },
         onShow(instance) {
-            const formatted_send_later_time = get_formatted_selected_send_later_time();
+            const formatted_send_later_time =
+                scheduled_messages.get_formatted_selected_send_later_time();
             instance.setContent(
                 parse_html(
                     render_send_later_popover({
@@ -161,7 +134,7 @@ export function initialize() {
         onMount(instance) {
             const $popper = $(instance.popper);
             $popper.one("click", ".send_later_selected_send_later_time", () => {
-                const send_at_timestamp = get_selected_send_later_timestamp();
+                const send_at_timestamp = scheduled_messages.get_selected_send_later_timestamp();
                 do_schedule_message(send_at_timestamp);
             });
             $popper.one("click", ".open_send_later_modal", open_send_later_menu);
@@ -171,4 +144,28 @@ export function initialize() {
             popover_menus.popover_instances.send_later = undefined;
         },
     });
+}
+
+// This function is exported for unit testing purposes.
+export function should_update_send_later_options(date) {
+    const current_minute = date.getMinutes();
+    const current_hour = date.getHours();
+
+    if (current_hour === 0 && current_minute === 0) {
+        // We need to rerender the available options at midnight,
+        // since Monday could become in range.
+        return true;
+    }
+
+    // Rerender at MINIMUM_SCHEDULED_MESSAGE_DELAY_SECONDS before the
+    // hour, so we don't offer a 4:00PM send time at 3:59 PM.
+    return current_minute === 60 - scheduled_messages.MINIMUM_SCHEDULED_MESSAGE_DELAY_SECONDS / 60;
+}
+
+export function update_send_later_options() {
+    const now = new Date();
+    if (should_update_send_later_options(now)) {
+        const filtered_send_opts = scheduled_messages.get_filtered_send_opts(now);
+        $("#send_later_options").replaceWith(render_send_later_modal_options(filtered_send_opts));
+    }
 }

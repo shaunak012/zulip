@@ -9,6 +9,7 @@ import render_success_message_scheduled_banner from "../templates/compose_banner
 import * as channel from "./channel";
 import * as compose_actions from "./compose_actions";
 import * as compose_banner from "./compose_banner";
+import * as compose_call from "./compose_call";
 import {get_recipient_label} from "./compose_closed_ui";
 import * as compose_recipient from "./compose_recipient";
 import * as compose_state from "./compose_state";
@@ -28,6 +29,7 @@ import * as people from "./people";
 import * as rendered_markdown from "./rendered_markdown";
 import * as resize from "./resize";
 import * as rows from "./rows";
+import * as scheduled_messages from "./scheduled_messages";
 import * as scheduled_messages_popover from "./scheduled_messages_popover";
 import * as sent_messages from "./sent_messages";
 import * as server_events from "./server_events";
@@ -46,53 +48,19 @@ import * as zcommand from "./zcommand";
 
 // Docs: https://zulip.readthedocs.io/en/latest/subsystems/sending-messages.html
 
-function get_jitsi_server_url() {
-    return page_params.realm_jitsi_server_url ?? page_params.server_jitsi_server_url;
-}
-
-export function compute_show_video_chat_button() {
-    const available_providers = page_params.realm_available_video_chat_providers;
-    if (page_params.realm_video_chat_provider === available_providers.disabled.id) {
-        return false;
-    }
-
-    if (
-        page_params.realm_video_chat_provider === available_providers.jitsi_meet.id &&
-        !get_jitsi_server_url()
-    ) {
-        return false;
-    }
-
-    return true;
-}
-
 export function update_audio_and_video_chat_button_display() {
     update_audio_chat_button_display();
     update_video_chat_button_display();
 }
 
 export function update_video_chat_button_display() {
-    const show_video_chat_button = compute_show_video_chat_button();
+    const show_video_chat_button = compose_call.compute_show_video_chat_button();
     $("#below-compose-content .video_link").toggle(show_video_chat_button);
     $(".message-edit-feature-group .video_link").toggle(show_video_chat_button);
 }
 
-export function compute_show_audio_chat_button() {
-    const available_providers = page_params.realm_available_video_chat_providers;
-    if (
-        (available_providers.jitsi_meet &&
-            get_jitsi_server_url() &&
-            page_params.realm_video_chat_provider === available_providers.jitsi_meet.id) ||
-        (available_providers.zoom &&
-            page_params.realm_video_chat_provider === available_providers.zoom.id)
-    ) {
-        return true;
-    }
-    return false;
-}
-
 export function update_audio_chat_button_display() {
-    const show_audio_chat_button = compute_show_audio_chat_button();
+    const show_audio_chat_button = compose_call.compute_show_audio_chat_button();
     $("#below-compose-content .audio_link").toggle(show_audio_chat_button);
     $(".message-edit-feature-group .audio_link").toggle(show_audio_chat_button);
 }
@@ -125,17 +93,6 @@ export function clear_preview_area() {
 export function abort_xhr() {
     $("#compose-send-button").prop("disabled", false);
     upload.compose_upload_object.cancelAll();
-}
-
-export const zoom_token_callbacks = new Map();
-export const video_call_xhrs = new Map();
-
-export function abort_video_callbacks(edit_message_id = "") {
-    zoom_token_callbacks.delete(edit_message_id);
-    if (video_call_xhrs.has(edit_message_id)) {
-        video_call_xhrs.get(edit_message_id).abort();
-        video_call_xhrs.delete(edit_message_id);
-    }
 }
 
 export function create_message_object() {
@@ -198,7 +155,7 @@ export function clear_compose_box() {
     compose_banner.clear_warnings();
     compose_banner.clear_uploads();
     compose_ui.hide_compose_spinner();
-    scheduled_messages_popover.reset_selected_schedule_timestamp();
+    scheduled_messages.reset_selected_schedule_timestamp();
 }
 
 export function send_message_success(local_id, message_id, locally_echoed) {
@@ -438,15 +395,15 @@ function setup_compose_actions_hooks() {
     compose_actions.register_compose_box_clear_hook(clear_preview_area);
 
     compose_actions.register_compose_cancel_hook(abort_xhr);
-    compose_actions.register_compose_cancel_hook(abort_video_callbacks);
+    compose_actions.register_compose_cancel_hook(compose_call.abort_video_callbacks);
 }
 
 export function initialize() {
     // Register hooks for compose_actions.
     setup_compose_actions_hooks();
 
-    $("#below-compose-content .video_link").toggle(compute_show_video_chat_button());
-    $("#below-compose-content .audio_link").toggle(compute_show_audio_chat_button());
+    $("#below-compose-content .video_link").toggle(compose_call.compute_show_video_chat_button());
+    $("#below-compose-content .audio_link").toggle(compose_call.compute_show_audio_chat_button());
 
     $("#compose-textarea").on("keydown", (event) => {
         compose_ui.handle_keydown(event, $("#compose-textarea").expectOne());
@@ -587,8 +544,7 @@ export function initialize() {
         )} .main-view-banner-action-button`,
         (event) => {
             event.preventDefault();
-            const send_at_timestamp =
-                scheduled_messages_popover.get_selected_send_later_timestamp();
+            const send_at_timestamp = scheduled_messages.get_selected_send_later_timestamp();
             scheduled_messages_popover.do_schedule_message(send_at_timestamp);
         },
     );
@@ -653,7 +609,7 @@ export function initialize() {
         e.preventDefault();
         e.stopPropagation();
 
-        const show_video_chat_button = compute_show_video_chat_button();
+        const show_video_chat_button = compose_call.compute_show_video_chat_button();
 
         if (!show_video_chat_button) {
             return;
@@ -666,7 +622,7 @@ export function initialize() {
         e.preventDefault();
         e.stopPropagation();
 
-        const show_audio_chat_button = compute_show_audio_chat_button();
+        const show_audio_chat_button = compose_call.compute_show_audio_chat_button();
 
         if (!show_audio_chat_button) {
             return;
@@ -795,9 +751,8 @@ export function initialize() {
 function schedule_message_to_custom_date() {
     const compose_message_object = create_message_object();
 
-    const deliver_at = scheduled_messages_popover.get_formatted_selected_send_later_time();
-    const scheduled_delivery_timestamp =
-        scheduled_messages_popover.get_selected_send_later_timestamp();
+    const deliver_at = scheduled_messages.get_formatted_selected_send_later_time();
+    const scheduled_delivery_timestamp = scheduled_messages.get_selected_send_later_timestamp();
 
     const message_type = compose_message_object.type;
     let req_type;
@@ -861,7 +816,7 @@ function generate_and_insert_audio_or_video_call_link($target_element, is_audio_
         available_providers.zoom &&
         page_params.realm_video_chat_provider === available_providers.zoom.id
     ) {
-        abort_video_callbacks(edit_message_id);
+        compose_call.abort_video_callbacks(edit_message_id);
         const key = edit_message_id || "";
 
         const request = {
@@ -869,13 +824,13 @@ function generate_and_insert_audio_or_video_call_link($target_element, is_audio_
         };
 
         const make_zoom_call = () => {
-            video_call_xhrs.set(
+            compose_call.video_call_xhrs.set(
                 key,
                 channel.post({
                     url: "/json/calls/zoom/create",
                     data: request,
                     success(res) {
-                        video_call_xhrs.delete(key);
+                        compose_call.video_call_xhrs.delete(key);
                         if (is_audio_call) {
                             insert_audio_call_url(res.url, $target_textarea);
                         } else {
@@ -883,7 +838,7 @@ function generate_and_insert_audio_or_video_call_link($target_element, is_audio_
                         }
                     },
                     error(xhr, status) {
-                        video_call_xhrs.delete(key);
+                        compose_call.video_call_xhrs.delete(key);
                         if (
                             status === "error" &&
                             xhr.responseJSON &&
@@ -904,7 +859,7 @@ function generate_and_insert_audio_or_video_call_link($target_element, is_audio_
         if (page_params.has_zoom_token) {
             make_zoom_call();
         } else {
-            zoom_token_callbacks.set(key, make_zoom_call);
+            compose_call.zoom_token_callbacks.set(key, make_zoom_call);
             window.open(
                 window.location.protocol + "//" + window.location.host + "/calls/zoom/register",
                 "_blank",
@@ -932,7 +887,7 @@ function generate_and_insert_audio_or_video_call_link($target_element, is_audio_
     } else {
         // TODO: Use `new URL` to generate the URLs here.
         const video_call_id = util.random_int(100000000000000, 999999999999999);
-        const video_call_link = get_jitsi_server_url() + "/" + video_call_id;
+        const video_call_link = compose_call.get_jitsi_server_url() + "/" + video_call_id;
         if (is_audio_call) {
             insert_audio_call_url(
                 video_call_link + "#config.startWithVideoMuted=true",
